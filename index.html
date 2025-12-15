@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Filter.io</title>
+  <link rel="icon" type="image/png" href="assets/favicon.ico?">
+  <meta property="og:title" content="Filter.io" />
+  <meta property="og:image" content="https://media.giphy.com/media/d7DzvSBdBiYGQulmFi/giphy.gif" />
+  <meta property="og:description"
+    content="JavaScript photobooth project built with Google FaceMesh API to analyze webcam input and apply video filters" />
+  <meta property="og:url" content="https://njpietrow.github.io/Filter.io/" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+  <style>
+    /* Ensure proper sizing for extension tab */
+    body {
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .content-container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    #video,
+    #game-canvas {
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+  <link rel="stylesheet" href="./dist/main.css" />
+  <script src="./dist/main.js"></script>
+
+</head>
+
+<body class="app">
+  <div>
+    <header>
+      <nav class="nav-bar">
+        <div class="title-container">
+          <h1 class="title">Filter.io</h1>
+        </div>
+      </nav>
+    </header>
+
+    <main class="content-container">
+      <div class="content">
+        <div class="instructions">
+          <h3>Filter.io</h3>
+          <p>Hover over the filter dropdown to view filter options. When find one you like, test it out by snapping a
+            picture to share with your friends!</p>
+          <button class="clear-instructions btn">Done</button>
+        </div>
+
+        <section class="blur">
+
+          <div class="video-background">&nbsp;</div>
+          <video id="video" autoplay muted></video>
+          <canvas id="game-canvas" width="640" height="480"></canvas>
+          <canvas id="effect-canvas" width="640" height="480"></canvas>
+
+          <div class="control-background">
+            <div class="filter-controls">
+              <div class="dropdown btn-container">
+
+                <button class="btn selector off-able">Select Filter</button>
+                <div class="dropdown-content">
+                  <button class="filter-select off-able" value="nose">Clown Nose</button>
+                  <button class="filter-select off-able" value="mask">Mask</button>
+                  <button class="filter-select off-able" value="tessalate">Different Mask</button>
+                  <button class="filter-select off-able" value="ears">Ears?</button>
+                  <button class="filter-select off-able" value="flowers">Flowers</button>
+                  <button class="filter-select off-able" value="mustache">I Mustache U a Question</button>
+                  <button class="filter-select off-able" value="none">No Filter</button>
+                  <button class="filter-select flappy" value="flappy" disabled>Flappy Bird?</button>
+                </div>
+              </div>
+
+              <div class="camera-controls btn-container">
+                <button class="capture btn off-able">Take picture</button>
+                <button class="webcam-toggle btn" data-on="true">Toggle Webcam</button>
+              </div>
+            </div>
+          </div>
+
+        </section>
+      </div>
+    </main>
+    <footer>
+      <div class="copyright">
+        © <a href="https://github.com/njpietrow">Nick Pietrow</a>, a/A 2022
+      </div>
+    </footer>
+</body>
+
+</html>

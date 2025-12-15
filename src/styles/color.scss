@@ -1,0 +1,123 @@
+$purple: #461E52;
+$pink: #DD517F;
+$orange: #E68E36;
+$blue: #556DC8;
+$light-blue: #7998EE;
+
+.content {
+  background-color: rgba(128, 128, 128, 0.392);
+  border-bottom: 1px solid $purple;
+  box-shadow: 0 8px 4px -4px $purple;
+}
+
+header{
+  background: linear-gradient( #0D0221 0%, #45125e 40%, #A22561 80%, #FF3864 100% );
+  box-shadow: 0 0 50px purple, 0 0 100px purple;
+  text-shadow:
+  0 0 6px #556DC8,
+  0 0 8px #E68E36;
+  border-bottom: 1px solid #E68E36;
+  // box-shadow: 0 8px 6px -6px black;
+}
+
+@media only screen and (max-width: 480px) {
+  section > * {
+    aspect-ratio: 480/640 !important;
+    width: 80% !important;
+    // height: 80% !important;
+  }
+  .link-container {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .instructions {
+    max-height: 320px !important;
+  }
+  .instructions p {
+    visibility: hidden;
+    // height: 0;
+  }
+  .instructions p:after {
+    visibility: visible;
+    display: block;
+    position: absolute;
+    top: 60px;
+    left: 0px;
+    padding: 6px 6px;
+    margin: auto;
+    content: "Webcam access only allowed on the desktop version of the site. Please visit again from a computer" !important;
+  }
+  .filter-controls * {
+    width: 80% !important;
+    font-size: .8em !important;
+  }
+
+ 
+}
+
+
+
+.dropdown-content{
+  background: transparent !important;
+}
+.title-container, .link-container a {
+  // background-color: orange;
+  color: #E68E36;
+}
+
+.video-background {
+  background-color: black;
+  border: 0px solid black;
+  // box-shadow:0 0 5px $orange;
+  z-index: 1;
+  box-shadow: 0px -8px 8px rgba(255, 52, 157, 0.447);
+  box-shadow: 0px -6px 4px rgba(255, 181, 52, 0.399);
+}
+
+#video {
+  z-index: 2;
+  
+}
+
+#game-canvas {
+  z-index: 3;
+  
+}
+
+body {
+  font-family: 'SF Alien Encounters', sans-serif;
+  font-family: 'SF Alien Encounters Solid', sans-serif;
+  // font-family: 'Times New Roman', Times, serif;
+  background-color: black;
+  letter-spacing: .05rem;
+  font-style: italic;
+  // font-kerning: normal;
+}
+
+h1 {
+  margin: 0;
+}
+
+footer {
+  border-top: 1px solid $blue;
+  background: linear-gradient(#45125e , #0D0221 );
+  color: $light-blue;
+}
+
+.instructions {
+  background-color: rgb(43, 42, 42);
+  box-shadow: 0 25px 50px $blue, 0 0 100px $blue;
+  // text-shadow:
+  // 0 0 6px #556DC8,
+  // 0 0 8px #E68E36;
+  border: 1px solid $light-blue;
+  color: $light-blue;
+}
+
+.instructions h3 {
+  font-size: 20px;
+  text-shadow:
+  0 0 6px #556DC8
+  // 0 0 8px #E68E36;
+}

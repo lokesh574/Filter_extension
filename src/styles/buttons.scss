@@ -1,0 +1,117 @@
+.btn {
+  background-color: $purple;
+  color: rgba(121, 152, 238, 1);
+  padding: 0.8vh;
+  font-size: min(1.8vh, 16px);
+  border: none;
+  box-shadow: 0 0 12px $light-blue, 0 0 6px whitesmoke;
+  border: 1px solid $blue;
+  margin-top: 1vh;
+  width: min(17vh, 145px);
+  text-align: center;
+  font-style: italic;
+  transition-duration: 50ms;
+}
+
+.filter-select {
+  display: inline-block;
+  width: 90%;
+}
+
+.dropdown {
+  position: relative;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background-color: #f1f1f1;
+  min-width: 100%;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  z-index: 1;
+}
+
+/* Links inside the dropdown */
+.filter-select {
+  padding: 0.8vh;
+  font-size: min(1.2vh, 12px);
+  text-decoration: none;
+  background-color: $purple;
+  border: 1px solid $blue;
+  display: block;
+  color: white;
+  text-shadow: none;
+  // font-style: normal;
+}
+
+.filter-select:active {
+  box-shadow: 0px 0px 8px purple, 0px 0px 30px purple, inset 0px 0px 5px gray;
+  color: pink;
+  text-shadow: 0 0 2px pink;
+  border: 1px solid pink;
+  -webkit-transform: scale(.97);
+}
+.link-container a:hover, .link-container a:focus-visible{
+  text-shadow:  0 0 6px orange, 0 0 12px $pink;
+  -webkit-transform: scale(1.1);
+}
+
+.link-container a:active{
+  -webkit-transform: scale(.95);
+}
+
+h1:hover {
+  text-shadow:  0 0 2px orange, 0 0 12px $pink;
+  -webkit-transform: scale(1.03);
+  user-select: none; /* Standard */
+}
+
+.btn:hover, .btn:focus-visible {
+  box-shadow:
+  0 0 6px $light-blue,
+  0 0 8px $light-blue;
+  text-shadow: 0 0 2px $blue;
+  -webkit-transform: scale(1.01)
+}
+
+.btn:disabled, .filter-select:disabled {
+  color: #C0C0C070;
+  box-shadow: none;
+  text-shadow: none;
+  border: 1px solid #C0C0C070;
+  cursor: not-allowed;
+}
+
+.btn:active {
+  box-shadow:0px 0px 10px purple, 0px 0px 50px purple, inset 0px 0px 5px gray;
+  border: 1px solid pink;
+  color: rgba(255, 192, 203, .8);
+  -webkit-transform: scale(.97);
+}
+
+/* Change color of dropdown links on hover */
+.dropdown-content  .filter-select:hover:enabled , .dropdown-content .filter-select:focus-visible:enabled{
+  background-color: $blue;
+  box-shadow:
+  0 0 6px $light-blue,
+  0 0 8px $light-blue;
+  text-shadow: 0 0 4px $pink;
+  // color: gray;
+}
+
+.flappy:disabled {
+  cursor: not-allowed;
+  color: #C0C0C070;
+  background-color: gray;
+  border: 1px solid #C0C0C070;
+}
+
+
+/* Show the dropdown menu on hover */
+.dropdown:hover .dropdown-content{
+  display: block;
+}
+
+
+
+ 
