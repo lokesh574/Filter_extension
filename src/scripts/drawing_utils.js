@@ -3,7 +3,7 @@ import { drawConnectors, FACEMESH_TESSELATION, FACEMESH_RIGHT_EYE, FACEMESH_RIGH
 
 const DrawingUtils = {
 
-  draw: function (canvasCtx, detections, functionName, filterName) {
+  draw: function (canvasCtx, results, filterName) {
 
     canvasCtx.save(); //save the context of 2d plane before transforming it to draw
     let canvas = canvasCtx.canvas;
@@ -14,11 +14,20 @@ const DrawingUtils = {
     const vid = document.querySelector("#video");
     canvasCtx.drawImage(vid, 0, 0);
 
-    if (detections.multiFaceLandmarks !== undefined) {
-      //interate over each face
-      for (const landmarks of detections.multiFaceLandmarks) {
-        //call the specific drawing function with the landmarks per face
-        this[functionName](canvasCtx, landmarks, filterName);
+    if (results && results.multiFaceLandmarks !== undefined) {
+      // iterate over each face
+      for (const landmarks of results.multiFaceLandmarks) {
+        if (!landmarks || !Array.isArray(landmarks) || landmarks.length === 0) {
+          console.warn('DrawingUtils: received empty or invalid landmarks for a face:', landmarks);
+          continue;
+        }
+        // call the specific drawing function with the landmarks per face
+        const fn = this[filterName] || this.none;
+        try {
+          fn.call(this, canvasCtx, landmarks, filterName);
+        } catch (e) {
+          console.error('DrawingUtils: error in filter', filterName, e);
+        }
       }
     }
 

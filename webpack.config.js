@@ -35,11 +35,11 @@ const config = {
     new MiniCssExtractPlugin(),
     new CopyPlugin({
       patterns: [
-        { from: 'node_modules/@mediapipe/face_mesh/*.wasm', to: 'dist/[name][ext]' },
-        { from: 'node_modules/@mediapipe/face_mesh/*.data', to: 'dist/[name][ext]' },
-        { from: 'node_modules/@mediapipe/face_mesh/*.js', to: 'dist/[name][ext]' },
-        { from: 'node_modules/@mediapipe/camera_utils/*.js', to: 'dist/[name][ext]' },
-        { from: 'node_modules/@mediapipe/drawing_utils/*.js', to: 'dist/[name][ext]' },
+        { from: 'node_modules/@mediapipe/face_mesh/*.wasm', to: '' },
+        { from: 'node_modules/@mediapipe/face_mesh/*.data', to: '' },
+        { from: 'node_modules/@mediapipe/face_mesh/*.js', to: '' },
+        { from: 'node_modules/@mediapipe/camera_utils/*.js', to: '' },
+        { from: 'node_modules/@mediapipe/drawing_utils/*.js', to: '' },
       ],
     }),
   ],

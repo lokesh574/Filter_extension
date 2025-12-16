@@ -16,7 +16,17 @@
         {
             "resources": [
                 "assets/*",
-                "dist/*"
+                "dist/*",
+                "dist/node_modules/@mediapipe/face_mesh/face_mesh.js",
+                "dist/node_modules/@mediapipe/face_mesh/face_mesh_solution_packed_assets.data",
+                "dist/node_modules/@mediapipe/face_mesh/face_mesh_solution_packed_assets_loader.js",
+                "dist/node_modules/@mediapipe/face_mesh/face_mesh_solution_simd_wasm_bin.js",
+                "dist/node_modules/@mediapipe/face_mesh/face_mesh_solution_simd_wasm_bin.wasm",
+                "dist/node_modules/@mediapipe/face_mesh/face_mesh_solution_wasm_bin.js",
+                "dist/node_modules/@mediapipe/face_mesh/face_mesh_solution_wasm_bin.wasm",
+                "dist/node_modules/@mediapipe/face_mesh/face_mesh.binarypb",
+                "dist/node_modules/@mediapipe/camera_utils/camera_utils.js",
+                "dist/node_modules/@mediapipe/drawing_utils/drawing_utils.js"
             ],
             "matches": [
                 "<all_urls>"

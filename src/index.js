@@ -1,3 +1,4 @@
+import './scripts/mediapipe_shim';
 import FM from './scripts/fm_wrapper'
 
 window.addEventListener('DOMContentLoaded', async () => {

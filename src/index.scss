@@ -1,9 +1,12 @@
 //RESET
 @import "styles/reset.scss";
-@import url(//fonts.cdnfonts.com/css/sf-alien-encounters);
+@import url(https://fonts.cdnfonts.com/css/sf-alien-encounters);
 //BASE
 @import "styles/layout.scss";
 @import "styles/color.scss";
-@import "styles/buttons.scss"
+@import "styles/buttons.scss";
 
-
+/* Fallback: extensions should not rely on protocol-relative imports. */
+body {
+    font-family: "SF Alien Encounters", "SF Alien Encounters Solid", sans-serif;
+}
