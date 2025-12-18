@@ -7,7 +7,44 @@ import { Camera } from '@mediapipe/camera_utils';
 import * as tfStatic from '@tensorflow/tfjs';
 import * as faceLandmarksStatic from '@tensorflow-models/face-landmarks-detection';
 
+// Top-level helper delegates to the class static method (defined below).
+function normalizeAnnotations(annotations, vw, vh) {
+  try {
+    if (typeof FM !== 'undefined' && FM.normalizeAnnotations) return FM.normalizeAnnotations(annotations, vw, vh);
+  } catch (e) {
+    // ignore during initial parsing
+  }
+  // fallback: simple normalization
+  const map = {};
+  try {
+    for (const key of Object.keys(annotations || {})) {
+      const arr = annotations[key];
+      if (Array.isArray(arr)) map[key] = arr.map(p => ({ x: (p[0] / vw), y: (p[1] / vh), z: (p[2] || 0) }));
+    }
+  } catch (e) {
+    console.warn('normalizeAnnotations fallback failed', e);
+  }
+  return map;
+}
+
 class FM {
+
+  // Convert TFJS annotations (arrays of [x,y,z]) into a map of named points normalized to [0..1]
+  // Example: { leftEye: [{x,y,z}, ...], rightEye: [...] }
+  static normalizeAnnotations(annotations, vw, vh) {
+    const map = {};
+    try {
+      for (const key of Object.keys(annotations)) {
+        const arr = annotations[key];
+        if (Array.isArray(arr)) {
+          map[key] = arr.map(p => ({ x: (p[0] / vw), y: (p[1] / vh), z: (p[2] || 0) }));
+        }
+      }
+    } catch (e) {
+      console.warn('normalizeAnnotations failed', e);
+    }
+    return map;
+  }
   constructor(filterName) {
     this.videoElement = document.querySelector("#video");
     this.canvasElement = document.querySelector("#game-canvas");
@@ -20,6 +57,8 @@ class FM {
     this.initCamera();
     this.bindControls.apply(this);
   }
+
+
 
   async initCamera() {
     try {
@@ -99,16 +138,36 @@ class FM {
 
     } catch (error) {
       console.error('=== CAMERA INITIALIZATION FAILED ===');
-      console.error('Error type:', typeof error);
-      console.error('Error constructor:', error.constructor.name);
-      console.error('Error name:', error.name);
-      console.error('Error message:', error.message);
-      console.error('Error code:', error.code);
-      console.error('Error constraint:', error.constraint);
-      console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-      console.error('Error stack:', error.stack);
 
-      this.showCameraError(error);
+      // Build a safe structured error for logging (some DOMExceptions have non-enumerable fields)
+      const structuredError = {
+        type: typeof error,
+        name: error && error.name ? error.name : String(error),
+        message: error && error.message ? error.message : (error && error.toString ? error.toString() : ''),
+        code: error && error.code ? error.code : undefined,
+        constraint: error && error.constraint ? error.constraint : undefined,
+        stack: error && error.stack ? error.stack : undefined
+      };
+      console.error('Camera error (structured):', structuredError);
+
+      // Additional debug: try to enumerate media devices (useful when device is busy)
+      let devices = null;
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+          devices = await navigator.mediaDevices.enumerateDevices();
+          // Print a concise device list
+          console.log('Media devices found:', devices.map(d => ({ kind: d.kind, label: d.label || '—', deviceId: d.deviceId })));
+        }
+      } catch (enumErr) {
+        console.warn('Could not enumerate devices for debug:', enumErr);
+      }
+
+      // If NotReadableError (device in use), provide extra guidance
+      if (structuredError.name === 'NotReadableError' || structuredError.name === 'TrackStartError') {
+        console.warn('Camera appears to be in use by another application or browser tab.');
+      }
+
+      this.showCameraError(structuredError, devices);
     }
   }
 
@@ -212,32 +271,54 @@ class FM {
         useCdn = true;
       }
 
-      this.faceMesh = new FaceMeshConstructor({
-        // Prevent the loader from trying to fetch a graph file that's not present in dist
-        graph: undefined,
-        locateFile: (file) => {
-          // CopyPlugin placed mediapipe files under dist/node_modules/@mediapipe/face_mesh/
-          // If the loader requests SIMD variants that use dynamic eval, force the non-SIMD filename
-          let requested = file;
-          if (requested && requested.indexOf('simd') !== -1) {
-            requested = requested.replace('face_mesh_solution_simd_wasm_bin', 'face_mesh_solution_wasm_bin');
-            requested = requested.replace('solution_simd_wasm_bin', 'solution_wasm_bin');
+      try {
+        this.faceMesh = new FaceMeshConstructor({
+          // Prevent the loader from trying to fetch a graph file that's not present in dist
+          graph: undefined,
+          locateFile: (file) => {
+            // CopyPlugin placed mediapipe files under dist/node_modules/@mediapipe/face_mesh/
+            // If the loader requests SIMD variants that use dynamic eval, force the non-SIMD filename
+            let requested = file;
+            if (requested && requested.indexOf('simd') !== -1) {
+              requested = requested.replace('face_mesh_solution_simd_wasm_bin', 'face_mesh_solution_wasm_bin');
+              requested = requested.replace('solution_simd_wasm_bin', 'solution_wasm_bin');
+            }
+            const url = runtimeGetUrl(`dist/node_modules/@mediapipe/face_mesh/${requested}`);
+            console.log('Loading MediaPipe file:', file, '=>', url);
+            return url;
           }
-          const url = runtimeGetUrl(`dist/node_modules/@mediapipe/face_mesh/${requested}`);
-          console.log('Loading MediaPipe file:', file, '=>', url);
-          return url;
+        });
+
+        try {
+          this.faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: false,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.5
+          });
+        } catch (optErr) {
+          console.error('faceMesh.setOptions failed:', optErr && optErr.stack ? optErr.stack : optErr);
+          this.faceMeshFailed = true;
         }
-      });
 
-      this.faceMesh.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: false,
-        minDetectionConfidence: 0.7,
-        minTrackingConfidence: 0.5
-      });
+        try {
+          if (typeof this.faceMesh.onResults === 'function') {
+            this.faceMesh.onResults(this.drawFaces.bind(this));
+          } else {
+            console.warn('faceMesh.onResults is not a function; cannot bind drawFaces');
+            this.faceMeshFailed = true;
+          }
+        } catch (onErr) {
+          console.error('Error binding faceMesh.onResults:', onErr && onErr.stack ? onErr.stack : onErr);
+          this.faceMeshFailed = true;
+        }
 
-      this.faceMesh.onResults(this.drawFaces.bind(this));
-      console.log('✓ MediaPipe Face Mesh configured');
+        console.log('✓ MediaPipe Face Mesh configured');
+      } catch (ctorErr) {
+        console.error('Error constructing MediaPipe FaceMesh:', ctorErr && ctorErr.stack ? ctorErr.stack : ctorErr);
+        this.faceMesh = null;
+        this.faceMeshFailed = true;
+      }
 
       // If the solution exposes an initialize() method, call it to ensure WASM and assets are loaded
       try {
@@ -247,6 +328,23 @@ class FM {
           console.log('faceMesh.initialize() completed');
         }
         this.faceMeshReady = true;
+
+        // Run a lightweight availability check to ensure faceMesh can process a frame
+        try {
+          await this.checkMediaPipeAvailability();
+          console.log('MediaPipe availability check passed');
+        } catch (chkErr) {
+          console.error('MediaPipe availability check failed:', chkErr && chkErr.stack ? chkErr.stack : chkErr);
+          this.faceMeshFailed = true;
+          // Try TFJS fallback when media pipe cannot process frames
+          try {
+            console.log('Attempting TFJS fallback after MediaPipe availability failure...');
+            await this.initTfjsFallback();
+            console.log('TFJS fallback initialized after MediaPipe failure');
+          } catch (tfErr) {
+            console.error('TFJS fallback also failed:', tfErr);
+          }
+        }
       } catch (initErr) {
         console.error('faceMesh initialize failed:', initErr);
         this.faceMeshFailed = true;
@@ -344,6 +442,64 @@ class FM {
     }
   }
 
+  // Perform a lightweight run-time check that MediaPipe FaceMesh can accept an image and produce results
+  async checkMediaPipeAvailability() {
+    if (!this.faceMesh) throw new Error('faceMesh instance not available');
+    // Verify expected API surface
+    if (typeof this.faceMesh.send !== 'function') throw new Error('faceMesh.send is not a function');
+    // onResults may be assigned as a callback; ensure it's at least set
+    if (typeof this.faceMesh.onResults !== 'function' && typeof this.faceMesh.onResults === 'undefined') {
+      // not strictly fatal here — we may have bound onResults differently
+      console.warn('faceMesh.onResults not a function (yet) — availability test will still attempt a send.');
+    }
+
+    // If video isn't ready, skip the live send test (no data to send)
+    if (!this.videoElement || this.videoElement.videoWidth <= 0 || this.videoElement.videoHeight <= 0) {
+      console.warn('Video element not ready for MediaPipe availability test; skipping live send.');
+      return;
+    }
+
+    // Create a small snapshot of the current video frame to test faceMesh.send
+    const tw = Math.max(64, Math.min(160, this.videoElement.videoWidth));
+    const th = Math.max(48, Math.min(120, this.videoElement.videoHeight));
+    const tmp = document.createElement('canvas');
+    tmp.width = tw; tmp.height = th;
+    const tctx = tmp.getContext('2d');
+    try {
+      tctx.drawImage(this.videoElement, 0, 0, tw, th);
+    } catch (e) {
+      console.warn('Could not draw video to temp canvas for MediaPipe test:', e);
+      throw e;
+    }
+
+    // Try to create an ImageBitmap if available for efficient transfer
+    let img = null;
+    try {
+      if (typeof createImageBitmap === 'function') {
+        img = await createImageBitmap(tmp);
+      } else {
+        // Fallback: use the canvas element itself
+        img = tmp;
+      }
+    } catch (e) {
+      console.warn('createImageBitmap failed, falling back to canvas element:', e);
+      img = tmp;
+    }
+
+    // Attempt to send the image and wait briefly for a result (use timeout to avoid hanging)
+    const sendPromise = (async () => {
+      try {
+        await this.faceMesh.send({ image: img });
+        return true;
+      } catch (e) {
+        throw e;
+      }
+    })();
+
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('faceMesh.send timeout (3s)')), 3000));
+    return Promise.race([sendPromise, timeout]);
+  }
+
   // TFJS fallback: load a JS-only face landmarks model and provide results compatible with DrawingUtils
   async initTfjsFallback() {
     try {
@@ -427,10 +583,21 @@ class FM {
       // show debug overlay to indicate TFJS fallback active
       this.showDebugOverlay = true;
 
+      // Warm up the TFJS model with a few snapshot attempts to ensure it can detect in this environment
+      try {
+        await this.warmupTfModel();
+      } catch (e) {
+        console.warn('TFJS warmup failed or produced no detections:', e);
+      }
+
       // Replace camera onFrame handler to use TFJS if MediaPipe not available
+      // If there is an existing mediapipe Camera instance it will call our frame logic.
+      // But if MediaPipe was skipped (no Camera created), start a TFJS loop using requestAnimationFrame
       if (this.camera) {
-        const originalOnFrame = this.camera.onFrame;
-        // We don't replace the Camera implementation; instead, the existing camera calls our onFrame logic which checks flags.
+        // existing camera will call runTfjsInference() in its onFrame handler when tfjsReady
+      } else {
+        // start a per-frame TFJS loop so inference runs even when MediaPipe Camera isn't present
+        this.startTfjsLoop();
       }
     } catch (err) {
       this.tfjsReady = false;
@@ -439,50 +606,208 @@ class FM {
     }
   }
 
+  startTfjsLoop() {
+    if (this._tfjsLoopRunning) return;
+    this._tfjsLoopRunning = true;
+    const loop = async () => {
+      try {
+        if (!this.tfjsReady) {
+          this._tfjsLoopRunning = false;
+          return;
+        }
+        await this.runTfjsInference();
+      } catch (e) {
+        console.warn('TFJS loop frame error:', e);
+      }
+      if (this._tfjsLoopRunning) requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  stopTfjsLoop() {
+    this._tfjsLoopRunning = false;
+  }
+
+  // Attempt several quick inference attempts on a snapshot to warm up the model
+  async warmupTfModel({ attempts = 5, delayMs = 300 } = {}) {
+    if (!this.tfModel || !this.videoElement) return;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        // small snapshot
+        const snap = document.createElement('canvas');
+        snap.width = Math.max(160, Math.min(640, this.videoElement.videoWidth || 320));
+        snap.height = Math.max(120, Math.min(480, this.videoElement.videoHeight || 240));
+        const sctx = snap.getContext('2d');
+        sctx.drawImage(this.videoElement, 0, 0, snap.width, snap.height);
+
+        let preds = null;
+        if (typeof this.tfModel.detect === 'function') {
+          try { preds = await this.tfModel.detect(snap); } catch (e) { /* ignore */ }
+        }
+        if ((!preds || !preds.length) && typeof this.tfModel.estimateFaces === 'function') {
+          try { preds = await this.tfModel.estimateFaces(snap); } catch (e) { /* ignore */ }
+        }
+        if ((!preds || !preds.length) && typeof this.tfModel.estimateFaces === 'function') {
+          try { preds = await this.tfModel.estimateFaces({ input: snap }); } catch (e) { /* ignore */ }
+        }
+
+        if (Array.isArray(preds) && preds.length) {
+          console.log('TFJS warmup: model produced predictions on attempt', i + 1);
+          return preds;
+        }
+      } catch (e) {
+        console.warn('TFJS warmup attempt failed:', e);
+      }
+      // wait before next attempt
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+    throw new Error('TFJS warmup did not produce detections');
+  }
+
   async runTfjsInference() {
     if (!this.tfModel || !this.videoElement) return;
     try {
+      // Throttling & caching helpers for unstable per-frame detection
+      const now = Date.now();
+      const MISS_THRESHOLD = 3; // wait this many consecutive misses before doing snapshot fallback
+      const SNAPSHOT_COOLDOWN_MS = 1500; // after a successful snapshot, wait this long before next snapshot
+      const REUSE_CACHE_MS = 2000; // reuse cached detection if recent
+      let useCachedResults = false;
+      let cachedResultsObj = null;
       let predictions = null;
       try {
-        if (this.tfjsIsDetector && typeof this.tfModel.estimateFaces !== 'function') {
-          // New detector API uses detect() not estimateFaces
-          if (typeof this.tfModel.estimateFaces === 'function') {
-            predictions = await this.tfModel.estimateFaces({ input: this.videoElement });
-          } else if (typeof this.tfModel.detect === 'function') {
-            predictions = await this.tfModel.detect(this.videoElement);
-          } else if (typeof this.tfModel.estimateFaces === 'function') {
-            predictions = await this.tfModel.estimateFaces(this.videoElement);
-          } else {
-            // last resort
-            predictions = await this.tfModel.estimateFaces({ input: this.videoElement });
+        // Try common invocation shapes in order. Some model builds expect a plain
+        // HTMLVideoElement, others expect an options object {input: videoElement}.
+        const vid = this.videoElement;
+        const callsTried = [];
+
+        const tryCall = async (fn, arg) => {
+          callsTried.push({ fn: fn.name || 'anonymous', argType: typeof arg });
+          return await fn(arg);
+        };
+
+        // 1) detector API: prefer .detect(videoElement)
+        if (typeof this.tfModel.detect === 'function') {
+          try {
+            predictions = await tryCall(this.tfModel.detect.bind(this.tfModel), vid);
+          } catch (e) {
+            console.warn('TFJS detect(video) failed:', e);
           }
-        } else if (typeof this.tfModel.estimateFaces === 'function') {
-          predictions = await this.tfModel.estimateFaces({ input: this.videoElement });
-        } else if (typeof this.tfModel.detect === 'function') {
-          predictions = await this.tfModel.detect(this.videoElement);
-        } else {
-          // can't call model
-          throw new Error('TFJS model has no detect/estimateFaces method');
+        }
+
+        // 2) legacy/alternate: estimateFaces(videoElement)
+        if (!predictions && typeof this.tfModel.estimateFaces === 'function') {
+          try {
+            predictions = await tryCall(this.tfModel.estimateFaces.bind(this.tfModel), vid);
+          } catch (e) {
+            console.warn('TFJS estimateFaces(video) failed:', e);
+          }
+        }
+
+        // 3) try estimateFaces({ input: videoElement })
+        if (!predictions && typeof this.tfModel.estimateFaces === 'function') {
+          try {
+            predictions = await tryCall(this.tfModel.estimateFaces.bind(this.tfModel), { input: vid });
+          } catch (e) {
+            console.warn('TFJS estimateFaces({input:video}) failed:', e);
+          }
+        }
+
+        // 4) last-resort: detect({ input: videoElement })
+        if (!predictions && typeof this.tfModel.detect === 'function') {
+          try {
+            predictions = await tryCall(this.tfModel.detect.bind(this.tfModel), { input: vid });
+          } catch (e) {
+            console.warn('TFJS detect({input:video}) failed:', e);
+          }
+        }
+
+        if (!predictions) {
+          throw new Error('TFJS model invocation failed; tried shapes: ' + JSON.stringify(callsTried));
         }
       } catch (callErr) {
-        console.warn('TFJS inference: primary call failed, trying alternate invocation shapes:', callErr);
-        // try alternating shapes
-        try { predictions = await this.tfModel.detect(this.videoElement); } catch (e) { /* ignore */ }
-        try { if (!predictions) predictions = await this.tfModel.estimateFaces({ input: this.videoElement }); } catch (e) { /* ignore */ }
+        console.warn('TFJS inference: primary call failed, tried alternates:', callErr);
       }
 
       console.log('TFJS inference: predictions count:', Array.isArray(predictions) ? predictions.length : 'non-array', predictions && predictions[0] ? Object.keys(predictions[0]) : null);
+      // If no faces detected from direct video input, decide whether to try a snapshot fallback
+      if (Array.isArray(predictions) && predictions.length === 0) {
+        // increment consecutive miss counter
+        this._tfjsConsecutiveVideoMisses = (this._tfjsConsecutiveVideoMisses || 0) + 1;
+        // If we have a recent cached successful detection, consider reusing it immediately
+        if (this._lastSuccessfulDetection && (now - (this._lastSuccessfulDetectionTime || 0)) < REUSE_CACHE_MS) {
+          console.log('TFJS inference: no video detections — reusing cached detection from', now - this._lastSuccessfulDetectionTime, 'ms ago');
+          useCachedResults = true;
+          cachedResultsObj = this._lastSuccessfulDetection;
+        }
+
+        if (this._tfjsConsecutiveVideoMisses < MISS_THRESHOLD) {
+          console.log('TFJS inference: no detections on video; miss', this._tfjsConsecutiveVideoMisses, '/', MISS_THRESHOLD, '— skipping snapshot this frame');
+        } else {
+          // Only attempt snapshot fallback if cooldown expired
+          if (this._tfjsSnapshotCooldownUntil && now < this._tfjsSnapshotCooldownUntil) {
+            console.log('TFJS inference: snapshot suppressed due to cooldown until', this._tfjsSnapshotCooldownUntil);
+            // keep using cached if available, otherwise do nothing this frame
+          } else {
+            try {
+              const snap = document.createElement('canvas');
+              snap.width = this.videoElement.videoWidth || this.canvasElement.width;
+              snap.height = this.videoElement.videoHeight || this.canvasElement.height;
+              const sctx = snap.getContext('2d');
+              sctx.drawImage(this.videoElement, 0, 0, snap.width, snap.height);
+              console.log('TFJS inference: no detections on video; trying snapshot canvas fallback');
+
+              // Try same call shapes against the canvas snapshot
+              let snapPreds = null;
+              if (typeof this.tfModel.detect === 'function') {
+                try { snapPreds = await this.tfModel.detect(snap); console.log('detect(canvas) succeeded'); } catch (e) { console.warn('detect(canvas) failed:', e); }
+              }
+              if (!snapPreds && typeof this.tfModel.estimateFaces === 'function') {
+                try { snapPreds = await this.tfModel.estimateFaces(snap); console.log('estimateFaces(canvas) succeeded'); } catch (e) { console.warn('estimateFaces(canvas) failed:', e); }
+              }
+              if (!snapPreds && typeof this.tfModel.estimateFaces === 'function') {
+                try { snapPreds = await this.tfModel.estimateFaces({ input: snap }); console.log('estimateFaces({input:canvas}) succeeded'); } catch (e) { console.warn('estimateFaces({input:canvas}) failed:', e); }
+              }
+              if (!snapPreds && typeof this.tfModel.detect === 'function') {
+                try { snapPreds = await this.tfModel.detect({ input: snap }); console.log('detect({input:canvas}) succeeded'); } catch (e) { console.warn('detect({input:canvas}) failed:', e); }
+              }
+              if (Array.isArray(snapPreds) && snapPreds.length) {
+                console.log('TFJS inference: snapshot produced', snapPreds.length, 'predictions');
+                predictions = snapPreds;
+                // reset miss counter and start cooldown to avoid snapshot every frame
+                this._tfjsConsecutiveVideoMisses = 0;
+                this._tfjsSnapshotCooldownUntil = now + SNAPSHOT_COOLDOWN_MS;
+              } else {
+                console.log('TFJS inference: snapshot also produced no predictions');
+              }
+            } catch (snapErr) {
+              console.warn('TFJS snapshot fallback failed:', snapErr);
+            }
+          }
+        }
+      }
 
       // Convert TFJS predictions to MediaPipe-style results object with multiFaceLandmarks
-      const results = { multiFaceLandmarks: [] };
+      // Also collect per-face normalized annotations when available
+      const results = { multiFaceLandmarks: [], multiFaceAnnotations: [] };
       const vw = this.videoElement.videoWidth || this.canvasElement.width || VIDEO_WIDTH || 640;
       const vh = this.videoElement.videoHeight || this.canvasElement.height || VIDEO_HEIGHT || 480;
+
+      // If we decided to reuse a cached, bypass conversion and draw it immediately
+      if (useCachedResults && cachedResultsObj) {
+        try {
+          DrawingUtils.draw(this.canvasCtx, cachedResultsObj, this.filterName);
+        } catch (e) { console.warn('Drawing cached results failed', e); }
+        if (this.showDebugOverlay) this.drawOverlay({ faces: (cachedResultsObj.multiFaceLandmarks || []).length, model: this.tfjsIsDetector ? 'detector' : 'legacy' });
+        return;
+      }
 
       for (const pred of (predictions || [])) {
         // Legacy shape: pred.scaledMesh (array of [x,y,z])
         if (pred.scaledMesh && Array.isArray(pred.scaledMesh)) {
           const landmarks = pred.scaledMesh.map(p => ({ x: (p[0] / vw), y: (p[1] / vh), z: (p[2] || 0) }));
           results.multiFaceLandmarks.push(landmarks);
+          results.multiFaceAnnotations.push(pred.annotations ? normalizeAnnotations(pred.annotations, vw, vh) : null);
           continue;
         }
 
@@ -491,6 +816,7 @@ class FM {
           // keypoints may be absolute pixels; normalize
           const landmarks = pred.keypoints.map(k => ({ x: (k.x / vw), y: (k.y / vh), z: (k.z || 0) }));
           results.multiFaceLandmarks.push(landmarks);
+          results.multiFaceAnnotations.push(pred.annotations ? normalizeAnnotations(pred.annotations, vw, vh) : null);
           continue;
         }
 
@@ -499,16 +825,34 @@ class FM {
           // produce a coarse landmark set from silhouette
           const landmarks = pred.annotations.silhouette.map(p => ({ x: (p[0] / vw), y: (p[1] / vh), z: (p[2] || 0) }));
           results.multiFaceLandmarks.push(landmarks);
+          results.multiFaceAnnotations.push(normalizeAnnotations(pred.annotations, vw, vh));
           continue;
         }
+        // no recognized shape - push placeholders to keep arrays aligned
+        results.multiFaceLandmarks.push([]);
+        results.multiFaceAnnotations.push(pred.annotations ? normalizeAnnotations(pred.annotations, vw, vh) : null);
       }
       if (!results.multiFaceLandmarks.length) {
         console.log('TFJS inference: no landmarks detected this frame');
       } else {
         console.log('TFJS inference: constructed multiFaceLandmarks[0] length:', results.multiFaceLandmarks[0].length);
+        // cache last successful converted results
+        this._lastSuccessfulDetection = results;
+        this._lastSuccessfulDetectionTime = Date.now();
+        // successful video detection -> reset miss counter
+        this._tfjsConsecutiveVideoMisses = 0;
       }
       // Hand off to drawing utils
       DrawingUtils.draw(this.canvasCtx, results, this.filterName);
+
+      // Debug overlay: draw connectors if requested and landmarks available
+      try {
+        if (this.showDebugOverlay && results.multiFaceLandmarks && results.multiFaceLandmarks[0] && results.multiFaceLandmarks[0].length) {
+          try { DrawingUtils.tessalate(this.canvasCtx, results.multiFaceLandmarks[0]); } catch (e) { /* ignore */ }
+        }
+      } catch (e) {
+        /* ignore overlay errors */
+      }
 
       // Draw debug overlay if requested
       if (this.showDebugOverlay) {
@@ -600,7 +944,21 @@ class FM {
 
       // Then apply face mesh and filters if detections exist
       if (detections) {
-        DrawingUtils.draw(this.canvasCtx, detections, this.filterName);
+        try {
+          // Log a lightweight shape of detections for debugging
+          try {
+            const sample = Array.isArray(detections.multiFaceLandmarks) ? detections.multiFaceLandmarks.length : (detections.multiFaceLandmarks ? 'object' : null);
+            console.log('Detections summary:', {
+              multiFaceLandmarksLength: sample,
+              hasAnnotations: !!detections.multiFaceAnnotations,
+              keys: Object.keys(detections)
+            });
+          } catch (sErr) { console.warn('Could not summarize detections:', sErr); }
+
+          DrawingUtils.draw(this.canvasCtx, detections, this.filterName);
+        } catch (dwErr) {
+          console.error('DrawingUtils.draw threw an error:', dwErr && dwErr.stack ? dwErr.stack : dwErr, 'Detections:', detections);
+        }
       }
 
     } catch (drawError) {
@@ -608,29 +966,30 @@ class FM {
     }
   }
 
-  showCameraError(error) {
+  showCameraError(error, devices) {
+    const err = error || {};
     const errorDiv = document.createElement('div');
     errorDiv.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); color: white; padding: 30px; border-radius: 15px; text-align: center; z-index: 1000; max-width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);';
 
-    console.log('Camera error details:', {
-      name: error.name,
-      message: error.message,
-      code: error.code,
-      constraint: error.constraint
+    console.log('Camera error details (safe):', {
+      name: err.name || 'unknown',
+      message: err.message || String(err),
+      code: err.code,
+      constraint: err.constraint
     });
 
     let errorMessage = 'Camera access is required for Filter.io to work.';
     let troubleshooting = '';
 
-    if (error.name === 'NotAllowedError') {
+    if (err.name === 'NotAllowedError') {
       errorMessage = 'Camera access was denied.';
       troubleshooting = 'Please click the camera icon in your address bar and allow camera access, then refresh this page.';
     } else if (error.name === 'NotFoundError') {
       errorMessage = 'No camera found on this device.';
       troubleshooting = 'Please ensure a camera is connected and try again.';
     } else if (error.name === 'NotReadableError') {
-      errorMessage = 'Camera is already in use.';
-      troubleshooting = 'Please close other applications that might be using your camera and try again.';
+      errorMessage = 'Camera could not be started (device busy).';
+      troubleshooting = 'Another application or tab may be using the camera. Close other apps or try selecting a different camera below.';
     } else if (error.name === 'OverconstrainedError') {
       errorMessage = 'Camera constraints could not be satisfied.';
       troubleshooting = 'Your camera may not support the required video format.';
@@ -638,7 +997,7 @@ class FM {
       errorMessage = 'Camera access requires a secure connection.';
       troubleshooting = 'Please ensure you are using HTTPS or localhost.';
     } else {
-      errorMessage = `Camera error: ${error.message || error.name || 'Unknown error'}`;
+      errorMessage = `Camera error: ${err.message || err.name || 'Unknown error'}`;
       troubleshooting = 'Please check your camera settings and browser permissions.';
     }
 
@@ -679,6 +1038,58 @@ class FM {
     errorDiv.appendChild(troubleshootingText);
     errorDiv.appendChild(retryBtn);
     errorDiv.appendChild(permissionBtn);
+
+    // If device enumeration was provided, show a selector to try an alternate device
+    if (Array.isArray(devices) && devices.length) {
+      try {
+        const cameraDevices = devices.filter(d => d.kind === 'videoinput');
+        if (cameraDevices.length) {
+          const selectLabel = document.createElement('p');
+          selectLabel.textContent = 'Available cameras:';
+          selectLabel.style.fontSize = '13px';
+          selectLabel.style.color = '#ddd';
+          selectLabel.style.marginTop = '12px';
+
+          const sel = document.createElement('select');
+          sel.style.padding = '8px';
+          sel.style.marginTop = '6px';
+          sel.style.width = '100%';
+          sel.style.maxWidth = '100%';
+          cameraDevices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.textContent = d.label || `Camera ${d.deviceId.slice(0, 6)}`;
+            sel.appendChild(opt);
+          });
+
+          const switchBtn = document.createElement('button');
+          switchBtn.textContent = 'Use selected camera';
+          switchBtn.style.cssText = 'padding: 10px 16px; margin-top:10px; background: #6c5ce7; color: white; border:none; border-radius:6px; cursor:pointer;';
+          switchBtn.addEventListener('click', async () => {
+            const deviceId = sel.value;
+            if (!deviceId) return;
+            try {
+              // Try to acquire the selected device
+              const s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
+              // Replace video srcObject and reload page to re-init flows
+              if (this.videoElement) {
+                this.videoElement.srcObject = s;
+              }
+              location.reload();
+            } catch (e) {
+              console.error('Switch camera failed:', e);
+              alert('Could not open selected camera: ' + (e && e.message ? e.message : e));
+            }
+          });
+
+          errorDiv.appendChild(selectLabel);
+          errorDiv.appendChild(sel);
+          errorDiv.appendChild(switchBtn);
+        }
+      } catch (uiErr) {
+        console.warn('Could not render device selector UI:', uiErr);
+      }
+    }
 
     document.body.appendChild(errorDiv);
   }
